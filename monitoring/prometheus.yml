@@ -1,0 +1,27 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["prometheus:9090"]
+  - job_name: seatflow-health
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets: ["http://booking:8081/health"]
+        labels: {service: booking}
+      - targets: ["http://inventory:8082/health"]
+        labels: {service: inventory}
+      - targets: ["http://payment:8083/health"]
+        labels: {service: payment}
+      - targets: ["http://notification:8084/health"]
+        labels: {service: notification}
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox:9115

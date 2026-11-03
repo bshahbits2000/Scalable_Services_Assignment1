@@ -1,0 +1,984 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+        "name": "postgres-init",
+        "namespace": "seatflow-a2-demo"
+      },
+      "data": {
+        "00-seatflow.sh": "#!/bin/sh\nset -eu\npsql -v ON_ERROR_STOP=1 --username \"$POSTGRES_USER\" --dbname postgres \\\n  --set=bpass=\"$BOOKING_PASSWORD\" --set=ipass=\"$INVENTORY_PASSWORD\" \\\n  --set=ppass=\"$PAYMENT_PASSWORD\" --set=npass=\"$NOTIFICATION_PASSWORD\" <<'SQL'\nCREATE ROLE sf_booking LOGIN PASSWORD :'bpass';\nCREATE ROLE sf_inventory LOGIN PASSWORD :'ipass';\nCREATE ROLE sf_payment LOGIN PASSWORD :'ppass';\nCREATE ROLE sf_notification LOGIN PASSWORD :'npass';\nCREATE DATABASE sf_booking OWNER sf_booking;\nCREATE DATABASE sf_inventory OWNER sf_inventory;\nCREATE DATABASE sf_payment OWNER sf_payment;\nCREATE DATABASE sf_notification OWNER sf_notification;\nREVOKE ALL ON DATABASE sf_booking FROM PUBLIC;\nREVOKE ALL ON DATABASE sf_inventory FROM PUBLIC;\nREVOKE ALL ON DATABASE sf_payment FROM PUBLIC;\nREVOKE ALL ON DATABASE sf_notification FROM PUBLIC;\nGRANT CONNECT ON DATABASE sf_booking TO sf_booking;\nGRANT CONNECT ON DATABASE sf_inventory TO sf_inventory;\nGRANT CONNECT ON DATABASE sf_payment TO sf_payment;\nGRANT CONNECT ON DATABASE sf_notification TO sf_notification;\nSQL\n"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "PersistentVolumeClaim",
+      "metadata": {
+        "name": "postgres-data",
+        "namespace": "seatflow-a2-demo"
+      },
+      "spec": {
+        "accessModes": [
+          "ReadWriteOnce"
+        ],
+        "resources": {
+          "requests": {
+            "storage": "1Gi"
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "postgres",
+        "namespace": "seatflow-a2-demo"
+      },
+      "spec": {
+        "replicas": 1,
+        "strategy": {
+          "type": "Recreate"
+        },
+        "selector": {
+          "matchLabels": {
+            "app": "postgres"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "postgres"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "postgres",
+                "image": "seatflow-a2-postgres:local",
+                "imagePullPolicy": "Never",
+                "ports": [
+                  {
+                    "containerPort": 5432
+                  }
+                ],
+                "resources": {
+                  "requests": {
+                    "cpu": "50m",
+                    "memory": "64Mi"
+                  },
+                  "limits": {
+                    "cpu": "1",
+                    "memory": "512Mi"
+                  }
+                },
+                "env": [
+                  {
+                    "name": "POSTGRES_USER",
+                    "value": "postgres"
+                  },
+                  {
+                    "name": "POSTGRES_DB",
+                    "value": "postgres"
+                  },
+                  {
+                    "name": "PGDATA",
+                    "value": "/var/lib/postgresql/data/pgdata"
+                  },
+                  {
+                    "name": "POSTGRES_PASSWORD",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "seatflow-db",
+                        "key": "postgres-password"
+                      }
+                    }
+                  },
+                  {
+                    "name": "BOOKING_PASSWORD",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "seatflow-db",
+                        "key": "booking-password"
+                      }
+                    }
+                  },
+                  {
+                    "name": "INVENTORY_PASSWORD",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "seatflow-db",
+                        "key": "inventory-password"
+                      }
+                    }
+                  },
+                  {
+                    "name": "PAYMENT_PASSWORD",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "seatflow-db",
+                        "key": "payment-password"
+                      }
+                    }
+                  },
+                  {
+                    "name": "NOTIFICATION_PASSWORD",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "seatflow-db",
+                        "key": "notification-password"
+                      }
+                    }
+                  }
+                ],
+                "volumeMounts": [
+                  {
+                    "name": "database",
+                    "mountPath": "/var/lib/postgresql/data"
+                  },
+                  {
+                    "name": "initialization",
+                    "mountPath": "/docker-entrypoint-initdb.d"
+                  }
+                ],
+                "startupProbe": {
+                  "exec": {
+                    "command": [
+                      "pg_isready",
+                      "-U",
+                      "postgres"
+                    ]
+                  },
+                  "periodSeconds": 2,
+                  "failureThreshold": 90
+                },
+                "readinessProbe": {
+                  "exec": {
+                    "command": [
+                      "pg_isready",
+                      "-U",
+                      "postgres"
+                    ]
+                  },
+                  "periodSeconds": 3
+                }
+              }
+            ],
+            "volumes": [
+              {
+                "name": "database",
+                "persistentVolumeClaim": {
+                  "claimName": "postgres-data"
+                }
+              },
+              {
+                "name": "initialization",
+                "configMap": {
+                  "name": "postgres-init"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "postgres",
+        "namespace": "seatflow-a2-demo"
+      },
+      "spec": {
+        "type": "ClusterIP",
+        "selector": {
+          "app": "postgres"
+        },
+        "ports": [
+          {
+            "port": 5432,
+            "targetPort": 5432
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "inventory",
+        "namespace": "seatflow-a2-demo"
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "inventory"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "inventory"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "inventory",
+                "image": "seatflow-a2-inventory:local",
+                "imagePullPolicy": "Never",
+                "ports": [
+                  {
+                    "containerPort": 8082
+                  }
+                ],
+                "resources": {
+                  "requests": {
+                    "cpu": "50m",
+                    "memory": "64Mi"
+                  },
+                  "limits": {
+                    "cpu": "1",
+                    "memory": "256Mi"
+                  }
+                },
+                "env": [
+                  {
+                    "name": "HOST",
+                    "value": "0.0.0.0"
+                  },
+                  {
+                    "name": "PORT",
+                    "value": "8082"
+                  },
+                  {
+                    "name": "DATABASE_URL",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "seatflow-db",
+                        "key": "inventory-url"
+                      }
+                    }
+                  },
+                  {
+                    "name": "DB_POOL_SIZE",
+                    "value": "8"
+                  },
+                  {
+                    "name": "ENABLE_SIMULATION",
+                    "value": "true"
+                  },
+                  {
+                    "name": "WORKER_INTERVAL_MS",
+                    "value": "1000"
+                  },
+                  {
+                    "name": "HTTP_TIMEOUT_MS",
+                    "value": "1000"
+                  },
+                  {
+                    "name": "RETRY_ATTEMPTS",
+                    "value": "3"
+                  },
+                  {
+                    "name": "RETRY_BASE_MS",
+                    "value": "80"
+                  },
+                  {
+                    "name": "MOCK_DELAY_MS",
+                    "value": "1200"
+                  },
+                  {
+                    "name": "INVENTORY_URL",
+                    "value": "http://inventory:8082"
+                  },
+                  {
+                    "name": "PAYMENT_URL",
+                    "value": "http://payment:8083"
+                  },
+                  {
+                    "name": "NOTIFICATION_URL",
+                    "value": "http://notification:8084"
+                  }
+                ],
+                "startupProbe": {
+                  "httpGet": {
+                    "path": "/health",
+                    "port": 8082
+                  },
+                  "periodSeconds": 2,
+                  "timeoutSeconds": 3,
+                  "failureThreshold": 90
+                },
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/health",
+                    "port": 8082
+                  },
+                  "periodSeconds": 3,
+                  "timeoutSeconds": 3
+                },
+                "livenessProbe": {
+                  "httpGet": {
+                    "path": "/health",
+                    "port": 8082
+                  },
+                  "periodSeconds": 10,
+                  "timeoutSeconds": 3,
+                  "failureThreshold": 6
+                }
+              }
+            ],
+            "initContainers": [
+              {
+                "name": "wait-for-database",
+                "image": "seatflow-a2-postgres:local",
+                "imagePullPolicy": "Never",
+                "command": [
+                  "sh",
+                  "-c",
+                  "until pg_isready -h postgres -U postgres; do sleep 2; done"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "inventory",
+        "namespace": "seatflow-a2-demo"
+      },
+      "spec": {
+        "type": "ClusterIP",
+        "selector": {
+          "app": "inventory"
+        },
+        "ports": [
+          {
+            "port": 8082,
+            "targetPort": 8082
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "payment",
+        "namespace": "seatflow-a2-demo"
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "payment"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "payment"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "payment",
+                "image": "seatflow-a2-payment:local",
+                "imagePullPolicy": "Never",
+                "ports": [
+                  {
+                    "containerPort": 8083
+                  }
+                ],
+                "resources": {
+                  "requests": {
+                    "cpu": "50m",
+                    "memory": "64Mi"
+                  },
+                  "limits": {
+                    "cpu": "1",
+                    "memory": "256Mi"
+                  }
+                },
+                "env": [
+                  {
+                    "name": "HOST",
+                    "value": "0.0.0.0"
+                  },
+                  {
+                    "name": "PORT",
+                    "value": "8083"
+                  },
+                  {
+                    "name": "DATABASE_URL",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "seatflow-db",
+                        "key": "payment-url"
+                      }
+                    }
+                  },
+                  {
+                    "name": "DB_POOL_SIZE",
+                    "value": "8"
+                  },
+                  {
+                    "name": "ENABLE_SIMULATION",
+                    "value": "true"
+                  },
+                  {
+                    "name": "WORKER_INTERVAL_MS",
+                    "value": "1000"
+                  },
+                  {
+                    "name": "HTTP_TIMEOUT_MS",
+                    "value": "1000"
+                  },
+                  {
+                    "name": "RETRY_ATTEMPTS",
+                    "value": "3"
+                  },
+                  {
+                    "name": "RETRY_BASE_MS",
+                    "value": "80"
+                  },
+                  {
+                    "name": "MOCK_DELAY_MS",
+                    "value": "1200"
+                  },
+                  {
+                    "name": "INVENTORY_URL",
+                    "value": "http://inventory:8082"
+                  },
+                  {
+                    "name": "PAYMENT_URL",
+                    "value": "http://payment:8083"
+                  },
+                  {
+                    "name": "NOTIFICATION_URL",
+                    "value": "http://notification:8084"
+                  }
+                ],
+                "startupProbe": {
+                  "httpGet": {
+                    "path": "/health",
+                    "port": 8083
+                  },
+                  "periodSeconds": 2,
+                  "timeoutSeconds": 3,
+                  "failureThreshold": 90
+                },
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/health",
+                    "port": 8083
+                  },
+                  "periodSeconds": 3,
+                  "timeoutSeconds": 3
+                },
+                "livenessProbe": {
+                  "httpGet": {
+                    "path": "/health",
+                    "port": 8083
+                  },
+                  "periodSeconds": 10,
+                  "timeoutSeconds": 3,
+                  "failureThreshold": 6
+                }
+              }
+            ],
+            "initContainers": [
+              {
+                "name": "wait-for-database",
+                "image": "seatflow-a2-postgres:local",
+                "imagePullPolicy": "Never",
+                "command": [
+                  "sh",
+                  "-c",
+                  "until pg_isready -h postgres -U postgres; do sleep 2; done"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "payment",
+        "namespace": "seatflow-a2-demo"
+      },
+      "spec": {
+        "type": "ClusterIP",
+        "selector": {
+          "app": "payment"
+        },
+        "ports": [
+          {
+            "port": 8083,
+            "targetPort": 8083
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "notification",
+        "namespace": "seatflow-a2-demo"
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "notification"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "notification"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "notification",
+                "image": "seatflow-a2-notification:local",
+                "imagePullPolicy": "Never",
+                "ports": [
+                  {
+                    "containerPort": 8084
+                  }
+                ],
+                "resources": {
+                  "requests": {
+                    "cpu": "50m",
+                    "memory": "64Mi"
+                  },
+                  "limits": {
+                    "cpu": "1",
+                    "memory": "256Mi"
+                  }
+                },
+                "env": [
+                  {
+                    "name": "HOST",
+                    "value": "0.0.0.0"
+                  },
+                  {
+                    "name": "PORT",
+                    "value": "8084"
+                  },
+                  {
+                    "name": "DATABASE_URL",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "seatflow-db",
+                        "key": "notification-url"
+                      }
+                    }
+                  },
+                  {
+                    "name": "DB_POOL_SIZE",
+                    "value": "8"
+                  },
+                  {
+                    "name": "ENABLE_SIMULATION",
+                    "value": "true"
+                  },
+                  {
+                    "name": "WORKER_INTERVAL_MS",
+                    "value": "1000"
+                  },
+                  {
+                    "name": "HTTP_TIMEOUT_MS",
+                    "value": "1000"
+                  },
+                  {
+                    "name": "RETRY_ATTEMPTS",
+                    "value": "3"
+                  },
+                  {
+                    "name": "RETRY_BASE_MS",
+                    "value": "80"
+                  },
+                  {
+                    "name": "MOCK_DELAY_MS",
+                    "value": "1200"
+                  },
+                  {
+                    "name": "INVENTORY_URL",
+                    "value": "http://inventory:8082"
+                  },
+                  {
+                    "name": "PAYMENT_URL",
+                    "value": "http://payment:8083"
+                  },
+                  {
+                    "name": "NOTIFICATION_URL",
+                    "value": "http://notification:8084"
+                  }
+                ],
+                "startupProbe": {
+                  "httpGet": {
+                    "path": "/health",
+                    "port": 8084
+                  },
+                  "periodSeconds": 2,
+                  "timeoutSeconds": 3,
+                  "failureThreshold": 90
+                },
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/health",
+                    "port": 8084
+                  },
+                  "periodSeconds": 3,
+                  "timeoutSeconds": 3
+                },
+                "livenessProbe": {
+                  "httpGet": {
+                    "path": "/health",
+                    "port": 8084
+                  },
+                  "periodSeconds": 10,
+                  "timeoutSeconds": 3,
+                  "failureThreshold": 6
+                }
+              }
+            ],
+            "initContainers": [
+              {
+                "name": "wait-for-database",
+                "image": "seatflow-a2-postgres:local",
+                "imagePullPolicy": "Never",
+                "command": [
+                  "sh",
+                  "-c",
+                  "until pg_isready -h postgres -U postgres; do sleep 2; done"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "notification",
+        "namespace": "seatflow-a2-demo"
+      },
+      "spec": {
+        "type": "ClusterIP",
+        "selector": {
+          "app": "notification"
+        },
+        "ports": [
+          {
+            "port": 8084,
+            "targetPort": 8084
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "booking",
+        "namespace": "seatflow-a2-demo"
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "booking"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "booking"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "booking",
+                "image": "seatflow-a2-booking:local",
+                "imagePullPolicy": "Never",
+                "ports": [
+                  {
+                    "containerPort": 8081
+                  }
+                ],
+                "resources": {
+                  "requests": {
+                    "cpu": "50m",
+                    "memory": "64Mi"
+                  },
+                  "limits": {
+                    "cpu": "1",
+                    "memory": "256Mi"
+                  }
+                },
+                "env": [
+                  {
+                    "name": "HOST",
+                    "value": "0.0.0.0"
+                  },
+                  {
+                    "name": "PORT",
+                    "value": "8081"
+                  },
+                  {
+                    "name": "DATABASE_URL",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "seatflow-db",
+                        "key": "booking-url"
+                      }
+                    }
+                  },
+                  {
+                    "name": "DB_POOL_SIZE",
+                    "value": "8"
+                  },
+                  {
+                    "name": "ENABLE_SIMULATION",
+                    "value": "true"
+                  },
+                  {
+                    "name": "WORKER_INTERVAL_MS",
+                    "value": "1000"
+                  },
+                  {
+                    "name": "HTTP_TIMEOUT_MS",
+                    "value": "1000"
+                  },
+                  {
+                    "name": "RETRY_ATTEMPTS",
+                    "value": "3"
+                  },
+                  {
+                    "name": "RETRY_BASE_MS",
+                    "value": "80"
+                  },
+                  {
+                    "name": "MOCK_DELAY_MS",
+                    "value": "1200"
+                  },
+                  {
+                    "name": "INVENTORY_URL",
+                    "value": "http://inventory:8082"
+                  },
+                  {
+                    "name": "PAYMENT_URL",
+                    "value": "http://payment:8083"
+                  },
+                  {
+                    "name": "NOTIFICATION_URL",
+                    "value": "http://notification:8084"
+                  }
+                ],
+                "startupProbe": {
+                  "httpGet": {
+                    "path": "/health",
+                    "port": 8081
+                  },
+                  "periodSeconds": 2,
+                  "timeoutSeconds": 3,
+                  "failureThreshold": 90
+                },
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/health",
+                    "port": 8081
+                  },
+                  "periodSeconds": 3,
+                  "timeoutSeconds": 3
+                },
+                "livenessProbe": {
+                  "httpGet": {
+                    "path": "/health",
+                    "port": 8081
+                  },
+                  "periodSeconds": 10,
+                  "timeoutSeconds": 3,
+                  "failureThreshold": 6
+                }
+              }
+            ],
+            "initContainers": [
+              {
+                "name": "wait-for-database",
+                "image": "seatflow-a2-postgres:local",
+                "imagePullPolicy": "Never",
+                "command": [
+                  "sh",
+                  "-c",
+                  "until pg_isready -h postgres -U postgres; do sleep 2; done"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "booking",
+        "namespace": "seatflow-a2-demo"
+      },
+      "spec": {
+        "type": "ClusterIP",
+        "selector": {
+          "app": "booking"
+        },
+        "ports": [
+          {
+            "port": 8081,
+            "targetPort": 8081
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "ui",
+        "namespace": "seatflow-a2-demo"
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "ui"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "ui"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "ui",
+                "image": "seatflow-a2-ui:local",
+                "imagePullPolicy": "Never",
+                "ports": [
+                  {
+                    "containerPort": 5173
+                  }
+                ],
+                "resources": {
+                  "requests": {
+                    "cpu": "50m",
+                    "memory": "64Mi"
+                  },
+                  "limits": {
+                    "cpu": "1",
+                    "memory": "512Mi"
+                  }
+                },
+                "env": [
+                  {
+                    "name": "HOST",
+                    "value": "0.0.0.0"
+                  },
+                  {
+                    "name": "PORT",
+                    "value": "5173"
+                  },
+                  {
+                    "name": "VITE_BOOKING_URL",
+                    "value": "http://booking:8081"
+                  },
+                  {
+                    "name": "VITE_INVENTORY_URL",
+                    "value": "http://inventory:8082"
+                  },
+                  {
+                    "name": "VITE_PAYMENT_URL",
+                    "value": "http://payment:8083"
+                  },
+                  {
+                    "name": "VITE_NOTIFICATION_URL",
+                    "value": "http://notification:8084"
+                  }
+                ],
+                "startupProbe": {
+                  "httpGet": {
+                    "path": "/",
+                    "port": 5173
+                  },
+                  "periodSeconds": 2,
+                  "timeoutSeconds": 3,
+                  "failureThreshold": 90
+                },
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/",
+                    "port": 5173
+                  },
+                  "periodSeconds": 3,
+                  "timeoutSeconds": 3
+                },
+                "livenessProbe": {
+                  "httpGet": {
+                    "path": "/",
+                    "port": 5173
+                  },
+                  "periodSeconds": 10,
+                  "timeoutSeconds": 3,
+                  "failureThreshold": 6
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "ui",
+        "namespace": "seatflow-a2-demo"
+      },
+      "spec": {
+        "type": "ClusterIP",
+        "selector": {
+          "app": "ui"
+        },
+        "ports": [
+          {
+            "port": 5173,
+            "targetPort": 5173
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -132,3 +132,8 @@ Editable design report: docs/SeatFlow_Design_Report.docx. Update member details,
 Silent demo and timed speaking script are in the delivery folder alongside the project archive. Four equal sections correspond to the four named members. The team records its own audio and publishes the final video. See docs/SUBMISSION.md. No fictional commit authors, personal experiences or hosting URLs have been created.
 
 AI assistance is declared in the report appendix and docs/AI_USE.md.
+
+## Assignment 2 advanced deployment
+
+- Kubernetes deployment and workflow verification: [instructions](k8s/README.txt).
+- Prometheus and Grafana monitoring: [instructions](monitoring/README.txt).
